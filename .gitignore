@@ -6,3 +6,5 @@ __pycache__
 .idea/
 tests/.cache/v/cache/lastfailed
 .cache/v/cache/lastfailed
+*.csv
+test_timeout.py

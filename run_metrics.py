@@ -6,8 +6,14 @@ from aimacode.search import (breadth_first_search, astar_search,
     greedy_best_first_graph_search, depth_limited_search,
     recursive_best_first_search)
 from my_air_cargo_problems import air_cargo_p1, air_cargo_p2, air_cargo_p3
+
 import pandas as pd
 import datetime
+
+import sys
+import threading
+import _thread as thread
+
 
 PROBLEM_CHOICE_MSG = """
 Select from the following list of air cargo problems. You may choose more than
@@ -40,9 +46,19 @@ SEARCHES = [["breadth_first_search", breadth_first_search, ""],
             ['astar_search', astar_search, 'h_pg_levelsum'],
             ]
 
+TIME_LIMIT = 600
+
 RESULTS = list()
 
 RUNTIME = datetime.datetime.now()
+
+
+def quit_function(fn_name):
+    # print to stderr, unbuffered in Python 2.
+    print('{0} took too long'.format(fn_name), file=sys.stderr)
+    sys.stderr.flush() # Python 3 stderr is likely buffered.
+    thread.interrupt_main() # raises KeyboardInterrupt
+
 
 class PrintableProblem(InstrumentedProblem):
     """ InstrumentedProblem keeps track of stats during search, and this
@@ -54,16 +70,29 @@ class PrintableProblem(InstrumentedProblem):
         return '{:^10d}  {:^10d}  {:^10d}'.format(self.succs, self.goal_tests, self.states)
 
 
-def add_results(problem_name, search_name, ip, node, elapsed_time):
-    result = {
-        'problem': problem_name,
-        'search_algorithm': search_name,
-        'expansions': ip.succs,
-        'goal_tests': ip.goal_tests,
-        'new_nodes': ip.states,
-        'elapsed_time': elapsed_time,
-        'num_actions': len(node.solution())
-    }
+def add_results(problem_name, search_name, failure=False, ip=None, node=None, elapsed_time=None ):
+    if failure:
+        result = {
+            'problem': problem_name,
+            'search_algorithm': search_name,
+            'solution_found': False,
+            'expansions': None,
+            'goal_tests': None,
+            'new_nodes': None,
+            'elapsed_time': None,
+            'num_actions': None
+        }
+    else:
+        result = {
+            'problem': problem_name,
+            'search_algorithm': search_name,
+            'solution_found': True,
+            'expansions': ip.succs,
+            'goal_tests': ip.goal_tests,
+            'new_nodes': ip.states,
+            'elapsed_time': elapsed_time,
+            'num_actions': len(node.solution())
+        }
     RESULTS.append(result)
 
 
@@ -87,15 +116,37 @@ def run_search(problem, search_function, problem_name, search_name, parameter=No
     start = timer()
     ip = PrintableProblem(problem)
     if parameter is not None:
-        node = search_function(ip, parameter)
+        timer1 = threading.Timer(TIME_LIMIT, quit_function, args=[search_function.__name__])
+        timer1.start()
+        try:
+            try:
+                node = search_function(ip, parameter)
+            finally:
+                timer1.cancel()
+            end = timer()
+            print("\nExpansions   Goal Tests   New Nodes")
+            print("{}\n".format(ip))
+            show_solution(node, end - start)
+            add_results(problem_name, search_name, ip=ip, node=node, elapsed_time=(end - start))
+            print()
+        except KeyboardInterrupt:
+            add_results(problem_name, search_name, failure=True)
     else:
-        node = search_function(ip)
-    end = timer()
-    print("\nExpansions   Goal Tests   New Nodes")
-    print("{}\n".format(ip))
-    show_solution(node, end - start)
-    add_results(problem_name, search_name, ip, node, end - start)
-    print()
+        timer1 = threading.Timer(TIME_LIMIT, quit_function, args=[search_function.__name__])
+        timer1.start()
+        try:
+            try:
+                node = search_function(ip)
+            finally:
+                timer1.cancel()
+            end = timer()
+            print("\nExpansions   Goal Tests   New Nodes")
+            print("{}\n".format(ip))
+            show_solution(node, end - start)
+            add_results(problem_name, search_name, ip=ip, node=node, elapsed_time=(end - start))
+            print()
+        except KeyboardInterrupt:
+            add_results(problem_name, search_name, failure=True)
 
 
 def manual():
@@ -152,7 +203,7 @@ if __name__=="__main__":
                         help="Specify the indices of the problems to solve as a list of space separated values. Choose from: {!s}".format(list(range(1, len(PROBLEMS)+1))))
     parser.add_argument('-s', '--searches', nargs="+", choices=range(1, len(SEARCHES)+1), type=int, metavar='',
                         help="Specify the indices of the search algorithms to use as a list of space separated values. Choose from: {!s}".format(list(range(1, len(SEARCHES)+1))))
-    parser.add_argument('-t', '--trials', type=int, help='Specify the number of trials of each search type for each problem')
+    # parser.add_argument('-t', '--trials', type=int, help='Specify the number of trials of each search type for each problem')
     args = parser.parse_args()
 
     if args.manual:
